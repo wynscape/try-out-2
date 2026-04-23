@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>A-Level Bio: Endocytosis Interactive</title>
+    <style>
+        :root {
+            --cell-color: #f0f4ff;
+            --membrane-color: #3498db;
+            --particle-color: #e74c3c;
+            --vesicle-color: #2980b9;
+            --bg-color: #ecf0f1;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            overflow: hidden;
+            touch-action: none; /* Prevents scrolling while dragging */
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .controls {
+            pointer-events: auto;
+            background: rgba(255, 255, 255, 0.9);
+            display: inline-block;
+            padding: 15px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .toggle-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            background: #bdc3c7;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.3s;
+        }
+
+        button.active {
+            background: var(--membrane-color);
+            color: white;
+        }
+
+        #stage {
+            width: 100vw;
+            height: 100vh;
+            background: white;
+            position: relative;
+        }
+
+        /* The "Inside" of the cell */
+        #cytoplasm {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 50%;
+            background: var(--cell-color);
+            border-top: 4px solid var(--membrane-color);
+        }
+
+        #particle {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: var(--particle-color);
+            border-radius: 50%;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            cursor: grab;
+            z-index: 5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 10px;
+            font-weight: bold;
+        }
+
+        #particle:active { cursor: grabbing; }
+
+        /* SVG Overlay for fluid membrane animation */
+        #membrane-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 4;
+        }
+
+        .label-box {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-size: 14px;
+            max-width: 80%;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .status-msg {
+            color: #27ae60;
+            font-weight: bold;
+            margin-top: 5px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui-layer">
+    <div class="controls">
+        <h2 style="margin:0; font-size: 1.2rem;">A-Level Biology: Cellular Uptake</h2>
+        <div class="toggle-group">
+            <button id="btn-endo" class="active" onclick="setMode('endo')">Endocytosis (Pinocytosis)</button>
+            <button id="btn-phago" onclick="setMode('phago')">Phagocytosis</button>
+        </div>
+        <p style="font-size: 0.8rem; margin: 8px 0 0;">Drag the particle into the cell</p>
+    </div>
+</div>
+
+<div id="stage">
+    <div id="cytoplasm"></div>
+    
+    <svg id="membrane-svg">
+        <!-- The path that deforms -->
+        <path id="membrane-path" d="" fill="#f0f4ff" stroke="#3498db" stroke-width="8"/>
+        <!-- Pseudopods for Phagocytosis -->
+        <path id="left-arm" d="" fill="#f0f4ff" stroke="#3498db" stroke-width="8" style="visibility: hidden;"/>
+        <path id="right-arm" d="" fill="#f0f4ff" stroke="#3498db" stroke-width="8" style="visibility: hidden;"/>
+    </svg>
+
+    <div id="particle">SOLUTE</div>
+</div>
+
+<div class="label-box">
+    <div id="mode-desc"><b>Endocytosis:</b> Membrane invaginates (folds inward) to form a vesicle around fluid/solutes.</div>
+    <div id="success-msg" class="status-msg">Vesicle Formed! Resetting...</div>
+</div>
+
+<script>
+    const particle = document.getElementById('particle');
+    const stage = document.getElementById('stage');
+    const membranePath = document.getElementById('membrane-path');
+    const leftArm = document.getElementById('left-arm');
+    const rightArm = document.getElementById('right-arm');
+    const successMsg = document.getElementById('success-msg');
+    
+    let mode = 'endo';
+    let isDragging = false;
+    let pos = { x: window.innerWidth / 2 - 20, y: 100 };
+    let membraneY = window.innerHeight / 2;
+    let particleCaptured = false;
+
+    // Initialize particle position
+    updateParticlePos();
+
+    function setMode(m) {
+        mode = m;
+        document.getElementById('btn-endo').classList.toggle('active', m === 'endo');
+        document.getElementById('btn-phago').classList.toggle('active', m === 'phago');
+        document.getElementById('mode-desc').innerHTML = m === 'endo' 
+            ? "<b>Pinocytosis:</b> Membrane invaginates (folds inward) to form a vesicle around fluid/solutes." 
+            : "<b>Phagocytosis:</b> Cell extends <b>pseudopods</b> to engulf large solid particles.";
+        particle.innerText = m === 'endo' ? "SOLUTE" : "BACTERIA";
+        resetParticle();
+    }
+
+    // Pointer Events (Support Mouse and Touch)
+    particle.addEventListener('pointerdown', (e) => {
+        isDragging = true;
+        particle.setPointerCapture(e.pointerId);
+    });
+
+    window.addEventListener('pointermove', (e) => {
+        if (!isDragging || particleCaptured) return;
+        
+        pos.x = e.clientX - 20;
+        pos.y = e.clientY - 20;
+        
+        updateParticlePos();
+        drawMembrane();
+        checkCapture();
+    });
+
+    window.addEventListener('pointerup', () => {
+        isDragging = false;
+        if (!particleCaptured) {
+            // Snap back if not captured
+            pos.y = Math.min(pos.y, membraneY - 80);
+            updateParticlePos();
+            drawMembrane();
+        }
+    });
+
+    function updateParticlePos() {
+        particle.style.left = pos.x + 'px';
+        particle.style.top = pos.y + 'px';
+    }
+
+    function drawMembrane() {
+        const w = window.innerWidth;
+        const midY = membraneY;
+        const px = pos.x + 20;
+        const py = pos.y + 20;
+        
+        // Distance from membrane
+        const dist = py - midY;
+
+        if (mode === 'endo') {
+            leftArm.style.visibility = 'hidden';
+            rightArm.style.visibility = 'hidden';
+            
+            // Create "dent" (invagination)
+            if (dist > -50 && dist < 100) {
+                const depth = Math.max(0, dist + 50);
+                membranePath.setAttribute('d', `M 0,${midY} L ${px-60},${midY} Q ${px},${midY + depth*1.5} ${px+60},${midY} L ${w},${midY} L ${w},${window.innerHeight} L 0,${window.innerHeight} Z`);
+            } else {
+                defaultMembrane();
+            }
+        } else {
+            // Phagocytosis - Pseudopods
+            if (dist > -100 && dist < 50) {
+                const reach = Math.abs(dist + 100);
+                leftArm.style.visibility = 'visible';
+                rightArm.style.visibility = 'visible';
+                
+                // Draw pseudopod arms wrapping around
+                leftArm.setAttribute('d', `M ${px-40},${midY} Q ${px-50},${midY-reach} ${px},${midY-reach/1.2} L ${px},${midY} Z`);
+                rightArm.setAttribute('d', `M ${px+40},${midY} Q ${px+50},${midY-reach} ${px},${midY-reach/1.2} L ${px},${midY} Z`);
+                
+                defaultMembrane();
+            } else {
+                leftArm.style.visibility = 'hidden';
+                rightArm.style.visibility = 'hidden';
+                defaultMembrane();
+            }
+        }
+    }
+
+    function defaultMembrane() {
+        const w = window.innerWidth;
+        const midY = membraneY;
+        membranePath.setAttribute('d', `M 0,${midY} L ${w},${midY} L ${w},${window.innerHeight} L 0,${window.innerHeight} Z`);
+    }
+
+    function checkCapture() {
+        const dist = (pos.y + 20) - membraneY;
+        if (dist > 60) {
+            particleCaptured = true;
+            particle.style.transition = "all 0.5s ease-out";
+            
+            // Visual for vesicle
+            particle.style.border = "4px solid " + (mode === 'endo' ? '#2980b9' : '#27ae60');
+            particle.style.background = "#fff";
+            particle.style.color = "#333";
+            pos.y += 100;
+            updateParticlePos();
+            
+            successMsg.style.display = 'block';
+            successMsg.innerText = mode === 'endo' ? "Vesicle Formed (Pinocytosis)!" : "Phagosome Formed (Phagocytosis)!";
+
+            setTimeout(resetParticle, 2000);
+        }
+    }
+
+    function resetParticle() {
+        particleCaptured = false;
+        successMsg.style.display = 'none';
+        particle.style.transition = "none";
+        particle.style.border = "none";
+        particle.style.background = "var(--particle-color)";
+        particle.style.color = "white";
+        pos = { x: window.innerWidth / 2 - 20, y: 100 };
+        updateParticlePos();
+        defaultMembrane();
+        leftArm.style.visibility = 'hidden';
+        rightArm.style.visibility = 'hidden';
+    }
+
+    // Handle Resize
+    window.addEventListener('resize', () => {
+        membraneY = window.innerHeight / 2;
+        resetParticle();
+    });
+
+    // Initial Draw
+    defaultMembrane();
+
+</script>
+</body>
+</html>
